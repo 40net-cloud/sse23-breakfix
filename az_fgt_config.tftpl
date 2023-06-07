@@ -1,0 +1,136 @@
+Content-Type: multipart/mixed; boundary="==AZURE=="
+MIME-Version: 1.0
+
+--==AZURE==
+Content-Type: text/plain; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="license"
+
+LICENSE-TOKEN: ${flex_token}
+
+--==AZURE==
+Content-Type: text/plain; charset="us-ascii"
+MIME-Version: 1.0
+
+config system ha
+    set group-name "fgtha"
+    set mode a-p
+    set hbdev "port3" 100 
+    set ha-mgmt-status enable
+    config ha-mgmt-interfaces
+        edit 1
+            set interface "port3"
+            set gateway ${ha_gateway}
+        next
+    end
+    set override enable
+    set priority ${ha_priority}
+    set unicast-hb enable
+    set unicast-hb-peerip ${ha_peer_ip}
+end
+config sys interface
+    edit port3
+        set allowaccess ssh https
+    next
+    edit port1
+        set allowaccess probe-response
+    next
+end
+
+config firewall vip
+    edit "rdp-to-100"
+        set extip ${elb_pip}
+        set mappedip "10.100.100.100"
+        set extintf "port1"
+        set portforward enable
+        set extport 3389
+        set mappedport 3389
+    next
+end
+config firewall policy
+    edit 1
+        set name "rdp-to-100-allow"
+        set srcintf "port1"
+        set dstintf "port2"
+        set action accept
+        set srcaddr "all"
+        set dstaddr "rdp-to-100"
+        set schedule "always"
+        set service "ALL"
+        set nat enable
+    next
+end
+
+config router bgp
+    set as ${fgt_asn_az}
+    config neighbor
+        %{ for peer in bgp_az_peers ~}
+        edit ${ peer }
+            set ebgp-enforce-multihop enable
+            set soft-reconfiguration enable
+            set interface "port2"
+            set remote-as ${bgp_az_asn}
+        next
+        %{ endfor ~}
+    end
+end
+
+config vpn ipsec phase1-interface
+  edit aws
+        set interface "port1"
+        set ike-version 2
+        set peertype any
+        set net-device disable
+        set remote-gw ${ipsec_aws_peer}
+        set psksecret ${psksecret}
+  next
+end
+config vpn ipsec phase2-interface
+    edit "aws"
+        set phase1name "aws"
+    next
+end
+config sys interface
+    edit aws
+        set ip 169.254.169.253/32
+        set remote-ip 169.254.169.254/30
+    next
+end
+config router bgp
+    config neighbor
+        edit 169.254.169.254
+            set remote-as ${fgt_asn_aws}
+            set soft-reconfiguration enable
+        next
+    end
+end
+
+config system sdn-connector
+    edit "AzureSDN"
+        set type azure
+    next
+end
+config fire address
+    edit "az-wrkld-subnet"
+        set type dynamic
+        set sdn "AzureSDN"
+        set filter "Subnet=wrkld"
+    next
+end
+config firewall policy
+    edit 0
+        set name "Azure-to-AWS"
+        set srcintf "port2"
+        set dstintf "aws"
+        set action accept
+        set srcaddr "az-wrkld-subnet"
+        set dstaddr "all"
+        set schedule "always"
+        set service "HTTP"
+        set logtraffic all
+        set logtraffic-start enable
+    next
+end
+
+--==AZURE==--
